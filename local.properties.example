@@ -1,0 +1,10 @@
+## 本文件为占位符示例，请勿提交真实的 local.properties
+## 复制本文件为 local.properties 并填入你自己的本机路径/密钥
+
+# Android SDK 本机路径（必填）
+sdk.dir=YOUR_ANDROID_SDK_PATH
+
+# 以下密钥当前由后端保管，客户端无需填写，仅作占位说明：
+# QINIU_ACCESS_KEY=YOUR_ACCESS_KEY
+# QINIU_SECRET_KEY=YOUR_SECRET_KEY
+# API_BASE_URL=http://your-backend-host:8080/
