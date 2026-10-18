@@ -9,12 +9,8 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    /**
-     * 模拟器访问电脑本机后端用 10.0.2.2；
-     * 真机调试可先执行 adb reverse tcp:8080 tcp:8080，再改为 http://127.0.0.1:8080/，
-     * 或直接改为电脑的局域网 IP。
-     */
-    private const val BASE_URL = "http://10.0.2.2:8080/"
+    /** 后端正式域名；本地联调可改回 http://10.0.2.2:8080/（模拟器访问本机） */
+    private const val BASE_URL = "https://iphonealbum.mornbussion.site/"
 
     private val json = Json {
         ignoreUnknownKeys = true

@@ -1,12 +1,34 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
-#
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
+# ---- kotlinx.serialization ----
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.**
+-keepclassmembers class com.example.album.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.example.album.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keep,includedescriptorclasses class com.example.album.**$$serializer { *; }
+-keepclassmembers class com.example.album.** {
+    public protected *;
+    private *;
+}
+# 所有 @Serializable 模型类完整保留
+-keep @kotlinx.serialization.Serializable class com.example.album.** { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ---- Retrofit / OkHttp ----
+-keepattributes Signature, Exceptions
+-keep,allowobfuscation interface retrofit2.** { *; }
+-keep class retrofit2.** { *; }
+-dontwarn retrofit2.**
+-keep class okhttp3.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keepclasseswithmembers class * {
+    @retrofit2.http.* <methods>;
+}
+
+# ---- Coil ----
+-dontwarn coil.**
+
+# ---- 数据模型不被混淆（序列化字段名依赖） ----
+-keep class com.example.album.data.model.** { *; }

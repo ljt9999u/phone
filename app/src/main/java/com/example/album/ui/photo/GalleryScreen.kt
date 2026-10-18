@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -59,12 +60,12 @@ import com.example.album.ui.theme.InkSecondary
 import com.example.album.ui.theme.MistBlueLight
 import com.example.album.ui.theme.MistBlueText
 import com.example.album.ui.theme.SakuraPink
+import com.example.album.ui.theme.AlbumTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun GalleryScreen(vm: PhotoViewModel) {
     val context = LocalContext.current
-    var viewer by remember { mutableStateOf<PhotoItem?>(null) }
 
     LaunchedEffect(Unit) { vm.loadGalleryIfNeeded() }
     LaunchedEffect(vm.toastMessage) {
@@ -73,6 +74,36 @@ fun GalleryScreen(vm: PhotoViewModel) {
             vm.consumeToast()
         }
     }
+
+    GalleryContent(
+        photos = vm.photos,
+        total = vm.total,
+        loading = vm.galleryLoading,
+        error = vm.galleryError,
+        loadingMore = vm.loadingMore,
+        downloading = vm.downloading,
+        onRefresh = { vm.refreshGallery() },
+        onLoadMore = { vm.loadMore() },
+        onDownload = { vm.download(it) },
+        onDelete = { vm.delete(it) }
+    )
+}
+
+/** 无状态层：便于预览与测试 */
+@Composable
+fun GalleryContent(
+    photos: List<PhotoItem>,
+    total: Long,
+    loading: Boolean,
+    error: String?,
+    loadingMore: Boolean,
+    downloading: Boolean,
+    onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
+    onDownload: (PhotoItem) -> Unit,
+    onDelete: (PhotoItem) -> Unit
+) {
+    var viewer by remember { mutableStateOf<PhotoItem?>(null) }
 
     val gridState = rememberLazyGridState()
     val shouldLoadMore by remember {
@@ -85,7 +116,7 @@ fun GalleryScreen(vm: PhotoViewModel) {
     LaunchedEffect(shouldLoadMore) {
         snapshotFlow { shouldLoadMore }
             .distinctUntilChanged()
-            .collect { if (it) vm.loadMore() }
+            .collect { if (it) onLoadMore() }
     }
 
     Column(
@@ -109,39 +140,39 @@ fun GalleryScreen(vm: PhotoViewModel) {
                     color = InkPrimary
                 )
                 Text(
-                    "共 ${vm.total} 张",
+                    "共 $total 张",
                     fontSize = 12.sp,
                     color = InkSecondary
                 )
             }
-            IconButton(onClick = { vm.refreshGallery() }) {
+            IconButton(onClick = onRefresh) {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = MistBlueText)
             }
         }
 
         when {
-            vm.galleryLoading && vm.photos.isEmpty() -> {
+            loading && photos.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = SakuraPink)
                 }
             }
-            vm.galleryError != null && vm.photos.isEmpty() -> {
+            error != null && photos.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(vm.galleryError!!, color = InkSecondary, fontSize = 14.sp)
+                        Text(error, color = InkSecondary, fontSize = 14.sp)
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "点击重试",
                             color = MistBlueText,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .clickable { vm.refreshGallery() }
+                                .clickable { onRefresh() }
                                 .padding(6.dp)
                         )
                     }
                 }
             }
-            vm.photos.isEmpty() -> {
+            photos.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
@@ -166,7 +197,7 @@ fun GalleryScreen(vm: PhotoViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(vm.photos, key = { it.id }) { photo ->
+                    items(photos, key = { it.id }) { photo ->
                         AsyncImage(
                             model = photo.url,
                             contentDescription = photo.photoName,
@@ -178,7 +209,7 @@ fun GalleryScreen(vm: PhotoViewModel) {
                             contentScale = ContentScale.Crop
                         )
                     }
-                    if (vm.loadingMore) {
+                    if (loadingMore) {
                         item(span = { GridItemSpan(3) }) {
                             Box(
                                 Modifier
@@ -202,10 +233,10 @@ fun GalleryScreen(vm: PhotoViewModel) {
     viewer?.let { photo ->
         PhotoViewerDialog(
             photo = photo,
-            downloading = vm.downloading,
-            onDownload = { vm.download(photo) },
+            downloading = downloading,
+            onDownload = { onDownload(photo) },
             onDelete = {
-                vm.delete(photo)
+                onDelete(photo)
                 viewer = null
             },
             onClose = { viewer = null }
@@ -299,5 +330,75 @@ private fun ViewerAction(icon: @Composable () -> Unit, label: String, onClick: (
         ) { icon() }
         Spacer(Modifier.height(6.dp))
         Text(label, color = Color.White, fontSize = 12.sp)
+    }
+}
+
+// ---------------- 预览 ----------------
+
+private fun previewPhoto(id: Long, name: String) = PhotoItem(
+    id = id,
+    photoName = name,
+    fileSize = 204800,
+    width = 1080,
+    height = 1920,
+    uploadTime = "2026-10-14T23:00:00",
+    url = ""
+)
+
+private val previewPhotos = listOf(
+    previewPhoto(1, "樱花树下.jpg"),
+    previewPhoto(2, "海边日落.jpg"),
+    previewPhoto(3, "猫咪午睡.jpg"),
+    previewPhoto(4, "山顶云海.jpg"),
+    previewPhoto(5, "街角咖啡.jpg"),
+    previewPhoto(6, "夜空烟火.jpg")
+)
+
+@Preview(showBackground = true, showSystemUi = true, name = "网格")
+@Composable
+private fun GalleryGridPreview() {
+    AlbumTheme {
+        GalleryContent(
+            photos = previewPhotos, total = 6, loading = false, error = null,
+            loadingMore = true, downloading = false,
+            onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "空态")
+@Composable
+private fun GalleryEmptyPreview() {
+    AlbumTheme {
+        GalleryContent(
+            photos = emptyList(), total = 0, loading = false, error = null,
+            loadingMore = false, downloading = false,
+            onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "加载中")
+@Composable
+private fun GalleryLoadingPreview() {
+    AlbumTheme {
+        GalleryContent(
+            photos = emptyList(), total = 0, loading = true, error = null,
+            loadingMore = false, downloading = false,
+            onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "错误态")
+@Composable
+private fun GalleryErrorPreview() {
+    AlbumTheme {
+        GalleryContent(
+            photos = emptyList(), total = 0, loading = false,
+            error = "网络异常，请稍后重试",
+            loadingMore = false, downloading = false,
+            onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
+        )
     }
 }

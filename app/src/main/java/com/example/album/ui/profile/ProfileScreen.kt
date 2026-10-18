@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.album.data.model.DeviceItem
@@ -46,18 +47,48 @@ import com.example.album.ui.theme.MistBlueText
 import com.example.album.ui.theme.RoseDeep
 import com.example.album.ui.theme.SakuraPink
 import com.example.album.ui.theme.SakuraPinkLight
+import com.example.album.ui.theme.AlbumTheme
 
 @Composable
 fun ProfileScreen(authVm: AuthViewModel, vm: ProfileViewModel) {
     LaunchedEffect(Unit) { vm.loadIfNeeded() }
-    var showResetDialog by remember { mutableStateOf(false) }
-    var showPasswordDialog by remember { mutableStateOf(false) }
 
     val me = vm.me
-    val displayName = me?.nickname?.takeIf { it.isNotBlank() }
-        ?: authVm.prefs.nickname.ifBlank { "朋友" }
-    val phone = me?.phone ?: authVm.prefs.phone
-    val isAdmin = me?.admin ?: authVm.prefs.isAdmin
+    ProfileContent(
+        displayName = me?.nickname?.takeIf { it.isNotBlank() }
+            ?: authVm.prefs.nickname.ifBlank { "朋友" },
+        phone = me?.phone ?: authVm.prefs.phone,
+        userId = me?.id ?: authVm.prefs.userId,
+        isAdmin = me?.admin ?: authVm.prefs.isAdmin,
+        devices = vm.devices,
+        loading = vm.loading,
+        errorMessage = vm.errorMessage,
+        loggingOut = authVm.loggingOut,
+        resetLoading = authVm.resetLoading,
+        onDismissError = { vm.clearError() },
+        onLogout = { authVm.logout() },
+        onResetSecret = { phone, password -> authVm.resetSecret(phone, password) }
+    )
+}
+
+/** 无状态层：便于预览与测试 */
+@Composable
+fun ProfileContent(
+    displayName: String,
+    phone: String,
+    userId: Long,
+    isAdmin: Boolean,
+    devices: List<DeviceItem>,
+    loading: Boolean,
+    errorMessage: String?,
+    loggingOut: Boolean,
+    resetLoading: Boolean,
+    onDismissError: () -> Unit,
+    onLogout: () -> Unit,
+    onResetSecret: (String, String) -> Unit
+) {
+    var showResetDialog by remember { mutableStateOf(false) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -76,8 +107,8 @@ fun ProfileScreen(authVm: AuthViewModel, vm: ProfileViewModel) {
                 .offset(y = (-36).dp)
                 .padding(horizontal = 24.dp)
         ) {
-            vm.errorMessage?.let {
-                ErrorBanner(message = it, onDismiss = { vm.clearError() })
+            errorMessage?.let {
+                ErrorBanner(message = it, onDismiss = onDismissError)
                 Spacer(Modifier.height(12.dp))
             }
 
@@ -86,7 +117,7 @@ fun ProfileScreen(authVm: AuthViewModel, vm: ProfileViewModel) {
                 SectionTitle("个人信息")
                 InfoRow("手机号", phone)
                 InfoRow("昵称", displayName)
-                InfoRow("用户 ID", (me?.id ?: authVm.prefs.userId).toString())
+                InfoRow("用户 ID", userId.toString())
                 InfoRow("身份", if (isAdmin) "管理员" else "普通用户")
             }
             Spacer(Modifier.height(16.dp))
@@ -107,23 +138,23 @@ fun ProfileScreen(authVm: AuthViewModel, vm: ProfileViewModel) {
 
             // ---- 登录设备 ----
             AuthCard {
-                SectionTitle("登录设备（最近 ${vm.devices.size} 条）")
-                if (vm.devices.isEmpty()) {
+                SectionTitle("登录设备（最近 ${devices.size} 条）")
+                if (devices.isEmpty()) {
                     Text(
-                        if (vm.loading) "加载中…" else "暂无记录",
+                        if (loading) "加载中…" else "暂无记录",
                         fontSize = 13.sp,
                         color = InkSecondary
                     )
                 } else {
-                    vm.devices.forEach { d ->
+                    devices.forEach { d ->
                         DeviceRow(d)
                     }
                 }
             }
             Spacer(Modifier.height(20.dp))
 
-            PrimaryPinkButton(text = "退出登录", loading = authVm.loggingOut) {
-                authVm.logout()
+            PrimaryPinkButton(text = "退出登录", loading = loggingOut) {
+                onLogout()
             }
             Spacer(Modifier.height(48.dp))
         }
@@ -174,9 +205,9 @@ fun ProfileScreen(authVm: AuthViewModel, vm: ProfileViewModel) {
                 TextButton(
                     onClick = {
                         showPasswordDialog = false
-                        authVm.resetSecret(phone, password)
+                        onResetSecret(phone, password)
                     },
-                    enabled = password.isNotBlank() && !authVm.resetLoading
+                    enabled = password.isNotBlank() && !resetLoading
                 ) { Text("确认重置", color = RoseDeep) }
             },
             dismissButton = {
@@ -245,6 +276,62 @@ private fun DeviceRow(d: DeviceItem) {
                 .clip(CircleShape)
                 .background(if (online) SakuraPinkLight else MistBlueLight)
                 .padding(horizontal = 10.dp, vertical = 3.dp)
+        )
+    }
+}
+
+// ---------------- 预览 ----------------
+
+private val previewDevices = listOf(
+    DeviceItem(
+        id = 1, deviceId = "a1b2c3", deviceName = "小米14",
+        loginIp = "120.230.1.2", loginTime = "2026-10-18T09:30:00", logoutTime = null
+    ),
+    DeviceItem(
+        id = 2, deviceId = "d4e5f6", deviceName = "iPad Pro",
+        loginIp = "58.20.11.8", loginTime = "2026-10-14T22:46:56",
+        logoutTime = "2026-10-15T08:10:00"
+    )
+)
+
+@Preview(showBackground = true, showSystemUi = true, name = "我的")
+@Composable
+private fun ProfilePreview() {
+    AlbumTheme {
+        ProfileContent(
+            displayName = "小明",
+            phone = "13800138000",
+            userId = 1,
+            isAdmin = false,
+            devices = previewDevices,
+            loading = false,
+            errorMessage = null,
+            loggingOut = false,
+            resetLoading = false,
+            onDismissError = {},
+            onLogout = {},
+            onResetSecret = { _, _ -> }
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "管理员")
+@Composable
+private fun ProfileAdminPreview() {
+    AlbumTheme {
+        ProfileContent(
+            displayName = "管理员",
+            phone = "13900139000",
+            userId = 2,
+            isAdmin = true,
+            devices = emptyList(),
+            loading = true,
+            errorMessage = null,
+            loggingOut = false,
+            resetLoading = false,
+            onDismissError = {},
+            onLogout = {},
+            onResetSecret = { _, _ -> }
         )
     }
 }

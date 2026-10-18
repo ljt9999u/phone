@@ -1,6 +1,8 @@
 package com.example.album.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -17,8 +19,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,6 +32,7 @@ import com.example.album.ui.photo.PhotoViewModel
 import com.example.album.ui.photo.UploadScreen
 import com.example.album.ui.profile.ProfileScreen
 import com.example.album.ui.profile.ProfileViewModel
+import com.example.album.ui.theme.AlbumTheme
 import com.example.album.ui.theme.CardWhite
 import com.example.album.ui.theme.CreamBg
 import com.example.album.ui.theme.InkSecondary
@@ -45,9 +50,22 @@ private val TABS = listOf(
 /** 登录后的主框架：底部三 Tab（上传 / 照片 / 我的） */
 @Composable
 fun MainScreen(authVm: AuthViewModel) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
     val photoVm: PhotoViewModel = viewModel()
     val profileVm: ProfileViewModel = viewModel()
+
+    MainScaffold { tab ->
+        when (tab) {
+            0 -> UploadScreen(photoVm)
+            1 -> GalleryScreen(photoVm)
+            else -> ProfileScreen(authVm, profileVm)
+        }
+    }
+}
+
+/** 无状态脚手架：底部导航 + 页面容器，便于预览 */
+@Composable
+fun MainScaffold(content: @Composable (Int) -> Unit) {
+    var tab by rememberSaveable { mutableIntStateOf(0) }
 
     Scaffold(
         containerColor = CreamBg,
@@ -78,10 +96,27 @@ fun MainScreen(authVm: AuthViewModel) {
         }
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            when (tab) {
-                0 -> UploadScreen(photoVm)
-                1 -> GalleryScreen(photoVm)
-                else -> ProfileScreen(authVm, profileVm)
+            content(tab)
+        }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "主框架")
+@Composable
+private fun MainScaffoldPreview() {
+    AlbumTheme {
+        MainScaffold { tab ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(CreamBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "当前页面：${TABS[tab].label}",
+                    color = InkSecondary,
+                    fontSize = 16.sp
+                )
             }
         }
     }
