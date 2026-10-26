@@ -31,6 +31,29 @@ data class PhotoItem(
     val url: String = ""
 )
 
+/** 批量取凭证请求（fileNames 1-10 个） */
+@Serializable
+data class BatchTokensRequest(
+    val fileNames: List<String>
+)
+
+/** 批量确认入库请求（items 1-10 个） */
+@Serializable
+data class BatchConfirmRequest(
+    val items: List<ConfirmRequest>
+)
+
+/** 批量删除请求（ids 1-100 个） */
+@Serializable
+data class BatchDeleteRequest(
+    val ids: List<Long>
+)
+
+@Serializable
+data class BatchDeleteData(
+    val deletedCount: Int = 0
+)
+
 @Serializable
 data class PhotoPageData(
     val list: List<PhotoItem> = emptyList(),

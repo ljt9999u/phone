@@ -1,6 +1,10 @@
 package com.example.album.data.api
 
 import com.example.album.data.model.ApiEnvelope
+import com.example.album.data.model.BatchConfirmRequest
+import com.example.album.data.model.BatchDeleteData
+import com.example.album.data.model.BatchDeleteRequest
+import com.example.album.data.model.BatchTokensRequest
 import com.example.album.data.model.ConfirmRequest
 import com.example.album.data.model.PhotoItem
 import com.example.album.data.model.PhotoPageData
@@ -46,4 +50,24 @@ interface PhotoApi {
         @Header("Authorization") token: String,
         @Path("id") id: Long
     ): ApiEnvelope<JsonElement?>
+
+    // ---------- 批量接口 ----------
+
+    @POST("api/photo/batch/tokens")
+    suspend fun batchTokens(
+        @Header("Authorization") token: String,
+        @Body body: BatchTokensRequest
+    ): ApiEnvelope<List<UploadTokenData>>
+
+    @POST("api/photo/batch/confirm")
+    suspend fun batchConfirm(
+        @Header("Authorization") token: String,
+        @Body body: BatchConfirmRequest
+    ): ApiEnvelope<List<PhotoItem>>
+
+    @POST("api/photo/batch/delete")
+    suspend fun batchDelete(
+        @Header("Authorization") token: String,
+        @Body body: BatchDeleteRequest
+    ): ApiEnvelope<BatchDeleteData>
 }

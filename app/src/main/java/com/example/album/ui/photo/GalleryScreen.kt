@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -54,13 +57,16 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.album.data.model.PhotoItem
 import com.example.album.data.util.ImageStore
+import com.example.album.ui.theme.AlbumTheme
+import com.example.album.ui.theme.CardWhite
 import com.example.album.ui.theme.CreamBg
 import com.example.album.ui.theme.InkPrimary
 import com.example.album.ui.theme.InkSecondary
 import com.example.album.ui.theme.MistBlueLight
 import com.example.album.ui.theme.MistBlueText
+import com.example.album.ui.theme.RoseDeep
 import com.example.album.ui.theme.SakuraPink
-import com.example.album.ui.theme.AlbumTheme
+import com.example.album.ui.theme.SakuraPinkLight
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -82,10 +88,18 @@ fun GalleryScreen(vm: PhotoViewModel) {
         error = vm.galleryError,
         loadingMore = vm.loadingMore,
         downloading = vm.downloading,
+        selectionMode = vm.selectionMode,
+        selectedIds = vm.selectedIds,
+        batchDeleting = vm.batchDeleting,
         onRefresh = { vm.refreshGallery() },
         onLoadMore = { vm.loadMore() },
         onDownload = { vm.download(it) },
-        onDelete = { vm.delete(it) }
+        onDelete = { vm.delete(it) },
+        onEnterSelection = { vm.enterSelection() },
+        onExitSelection = { vm.exitSelection() },
+        onToggleSelect = { vm.toggleSelect(it) },
+        onToggleSelectAll = { vm.toggleSelectAll() },
+        onBatchDelete = { vm.deleteSelected() }
     )
 }
 
@@ -101,9 +115,18 @@ fun GalleryContent(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onDownload: (PhotoItem) -> Unit,
-    onDelete: (PhotoItem) -> Unit
+    onDelete: (PhotoItem) -> Unit,
+    selectionMode: Boolean = false,
+    selectedIds: Set<Long> = emptySet(),
+    batchDeleting: Boolean = false,
+    onEnterSelection: () -> Unit = {},
+    onExitSelection: () -> Unit = {},
+    onToggleSelect: (Long) -> Unit = {},
+    onToggleSelectAll: () -> Unit = {},
+    onBatchDelete: () -> Unit = {}
 ) {
     var viewer by remember { mutableStateOf<PhotoItem?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
     val shouldLoadMore by remember {
@@ -134,20 +157,45 @@ fun GalleryContent(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "我的照片",
+                    if (selectionMode) "已选 ${selectedIds.size} 张" else "我的照片",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = InkPrimary
                 )
                 Text(
-                    "共 $total 张",
+                    if (selectionMode) "轻点照片可取消选择" else "共 $total 张",
                     fontSize = 12.sp,
                     color = InkSecondary
                 )
             }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = MistBlueText)
+            if (photos.isNotEmpty()) {
+                Text(
+                    if (selectionMode) "取消" else "选择",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MistBlueText,
+                    modifier = Modifier
+                        .clickable {
+                            if (selectionMode) onExitSelection() else onEnterSelection()
+                        }
+                        .padding(6.dp)
+                )
             }
+            if (!selectionMode) {
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = MistBlueText)
+                }
+            }
+        }
+
+        if (selectionMode) {
+            SelectionBar(
+                allSelected = photos.isNotEmpty() && selectedIds.size == photos.size,
+                selectedCount = selectedIds.size,
+                deleting = batchDeleting,
+                onToggleSelectAll = onToggleSelectAll,
+                onDelete = { confirmDelete = true }
+            )
         }
 
         when {
@@ -191,23 +239,57 @@ fun GalleryContent(
                     columns = GridCells.Fixed(3),
                     state = gridState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    contentPadding = PaddingValues(
                         start = 20.dp, end = 20.dp, bottom = 24.dp
                     ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(photos, key = { it.id }) { photo ->
-                        AsyncImage(
-                            model = photo.url,
-                            contentDescription = photo.photoName,
-                            modifier = Modifier
+                        val selected = photo.id in selectedIds
+                        Box(
+                            Modifier
                                 .aspectRatio(1f)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MistBlueLight)
-                                .clickable { viewer = photo },
-                            contentScale = ContentScale.Crop
-                        )
+                                .clickable {
+                                    if (selectionMode) onToggleSelect(photo.id) else viewer = photo
+                                }
+                        ) {
+                            AsyncImage(
+                                model = photo.url,
+                                contentDescription = photo.photoName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            if (selectionMode) {
+                                if (!selected) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .background(Color.White.copy(alpha = 0.28f))
+                                    )
+                                }
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(6.dp)
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selected) SakuraPink else Color.White.copy(alpha = 0.8f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Filled.Check,
+                                            contentDescription = "已选择",
+                                            tint = RoseDeep,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     if (loadingMore) {
                         item(span = { GridItemSpan(3) }) {
@@ -241,6 +323,131 @@ fun GalleryContent(
             },
             onClose = { viewer = null }
         )
+    }
+
+    if (confirmDelete) {
+        BatchDeleteDialog(
+            count = selectedIds.size,
+            onConfirm = {
+                confirmDelete = false
+                onBatchDelete()
+            },
+            onDismiss = { confirmDelete = false }
+        )
+    }
+}
+
+/** 选择模式下的操作条：全选 + 批量删除 */
+@Composable
+private fun SelectionBar(
+    allSelected: Boolean,
+    selectedCount: Int,
+    deleting: Boolean,
+    onToggleSelectAll: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            if (allSelected) "取消全选" else "全选",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MistBlueText,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(enabled = !deleting, onClick = onToggleSelectAll)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        )
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier
+                .height(38.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(if (selectedCount > 0 && !deleting) SakuraPink else SakuraPinkLight)
+                .clickable(enabled = selectedCount > 0 && !deleting, onClick = onDelete)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (deleting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(15.dp),
+                    color = RoseDeep,
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("删除中…", fontSize = 13.sp, color = RoseDeep, fontWeight = FontWeight.SemiBold)
+            } else {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = null,
+                    tint = if (selectedCount > 0) RoseDeep else InkSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "删除 ${if (selectedCount > 0) "$selectedCount 张" else ""}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selectedCount > 0) RoseDeep else InkSecondary
+                )
+            }
+        }
+    }
+}
+
+/** 批量删除确认弹窗 */
+@Composable
+private fun BatchDeleteDialog(
+    count: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(CardWhite)
+                .padding(24.dp)
+        ) {
+            Text("删除照片", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = InkPrimary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "将删除选中的 $count 张照片，云端文件会一并移除，且无法恢复。",
+                fontSize = 13.sp,
+                color = InkSecondary
+            )
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(23.dp))
+                        .background(MistBlueLight)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("取消", fontSize = 15.sp, color = MistBlueText, fontWeight = FontWeight.Medium)
+                }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(23.dp))
+                        .background(SakuraPink)
+                        .clickable(onClick = onConfirm),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("删除", fontSize = 15.sp, color = RoseDeep, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }
 
@@ -361,6 +568,19 @@ private fun GalleryGridPreview() {
         GalleryContent(
             photos = previewPhotos, total = 6, loading = false, error = null,
             loadingMore = true, downloading = false,
+            onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true, name = "选择模式")
+@Composable
+private fun GallerySelectionPreview() {
+    AlbumTheme {
+        GalleryContent(
+            photos = previewPhotos, total = 6, loading = false, error = null,
+            loadingMore = false, downloading = false,
+            selectionMode = true, selectedIds = setOf(1L, 3L, 5L),
             onRefresh = {}, onLoadMore = {}, onDownload = {}, onDelete = {}
         )
     }
