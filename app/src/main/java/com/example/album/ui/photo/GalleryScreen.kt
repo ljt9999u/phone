@@ -3,6 +3,11 @@ package com.example.album.ui.photo
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +26,8 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,18 +53,24 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.album.data.model.PhotoItem
-import com.example.album.data.util.ImageStore
 import com.example.album.ui.theme.AlbumTheme
 import com.example.album.ui.theme.CardWhite
 import com.example.album.ui.theme.CreamBg
@@ -125,7 +139,7 @@ fun GalleryContent(
     onToggleSelectAll: () -> Unit = {},
     onBatchDelete: () -> Unit = {}
 ) {
-    var viewer by remember { mutableStateOf<PhotoItem?>(null) }
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
@@ -253,7 +267,12 @@ fun GalleryContent(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MistBlueLight)
                                 .clickable {
-                                    if (selectionMode) onToggleSelect(photo.id) else viewer = photo
+                                    if (selectionMode) {
+                                        onToggleSelect(photo.id)
+                                    } else {
+                                        viewerIndex = photos.indexOfFirst { it.id == photo.id }
+                                            .takeIf { it >= 0 }
+                                    }
                                 }
                         ) {
                             AsyncImage(
@@ -312,17 +331,17 @@ fun GalleryContent(
         }
     }
 
-    viewer?.let { photo ->
-        PhotoViewerDialog(
-            photo = photo,
-            downloading = downloading,
-            onDownload = { onDownload(photo) },
-            onDelete = {
-                onDelete(photo)
-                viewer = null
-            },
-            onClose = { viewer = null }
-        )
+    if (photos.isNotEmpty()) {
+        viewerIndex?.let { index ->
+            PhotoViewerDialog(
+                photos = photos,
+                initialIndex = index.coerceIn(0, photos.lastIndex),
+                downloading = downloading,
+                onDownload = { onDownload(it) },
+                onDelete = { onDelete(it) },
+                onClose = { viewerIndex = null }
+            )
+        }
     }
 
     if (confirmDelete) {
@@ -453,91 +472,198 @@ private fun BatchDeleteDialog(
 
 @Composable
 private fun PhotoViewerDialog(
-    photo: PhotoItem,
+    photos: List<PhotoItem>,
+    initialIndex: Int,
     downloading: Boolean,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
+    onDownload: (PhotoItem) -> Unit,
+    onDelete: (PhotoItem) -> Unit,
     onClose: () -> Unit
 ) {
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val pagerState = rememberPagerState(initialPage = initialIndex) { photos.size }
+        val current = photos.getOrNull(pagerState.currentPage)
+
+        // 双指缩放状态：放大后禁用翻页，交给拖拽平移
+        var scale by remember { mutableFloatStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        var viewport by remember { mutableStateOf(IntSize.Zero) }
+
+        LaunchedEffect(pagerState.currentPage) {
+            scale = 1f
+            offset = Offset.Zero
+        }
+
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.92f))
         ) {
-            AsyncImage(
-                model = photo.url,
-                contentDescription = photo.photoName,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center),
-                contentScale = ContentScale.Fit
-            )
+            // 左右滑动切换上一张 / 下一张
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = scale <= 1f
+            ) { page ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { viewport = it }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (scale > 1f) {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                    } else {
+                                        scale = 2.5f
+                                        offset = Offset.Zero
+                                    }
+                                }
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            // 双指缩放 + 放大后单指拖动；未放大时不拦截事件，保证翻页
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pressed = event.changes.count { it.pressed }
+                                    if (pressed >= 2) {
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        if (zoomChange != 1f || panChange != Offset.Zero) {
+                                            val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                                            scale = newScale
+                                            offset = if (newScale > 1f) {
+                                                clampOffset(offset + panChange, viewport, newScale)
+                                            } else {
+                                                Offset.Zero
+                                            }
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    } else if (pressed == 1 && scale > 1f) {
+                                        val panChange = event.calculatePan()
+                                        if (panChange != Offset.Zero) {
+                                            offset = clampOffset(offset + panChange, viewport, scale)
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = photos[page].url,
+                        contentDescription = photos[page].photoName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offset.x
+                                translationY = offset.y
+                            },
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
 
+            // 只保留悬浮图标按钮，不显示页码与图片信息，保证沉浸观感
             IconButton(
                 onClick = onClose,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(14.dp)
+                    .padding(12.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.28f))
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Color.White)
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "关闭",
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(photo.photoName, color = Color.White, fontSize = 14.sp, maxLines = 1)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "${ImageStore.formatSize(photo.fileSize)} · " +
-                        "${photo.width}×${photo.height} · ${ImageStore.formatTime(photo.uploadTime)}",
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 12.sp
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    ViewerAction(
-                        icon = { Icon(Icons.Filled.Download, null, tint = Color.White) },
-                        label = if (downloading) "下载中…" else "下载",
-                        onClick = onDownload
-                    )
-                    ViewerAction(
-                        icon = { Icon(Icons.Filled.Delete, null, tint = Color(0xFFFFB4C4)) },
-                        label = "删除",
-                        onClick = onDelete
-                    )
+            current?.let { photo ->
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 40.dp),
+                    horizontalArrangement = Arrangement.spacedBy(26.dp)
+                ) {
+                    CircleAction(
+                        contentDescription = if (downloading) "下载中" else "下载",
+                        enabled = !downloading,
+                        onClick = { onDownload(photo) }
+                    ) {
+                        if (downloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.Download,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.92f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    CircleAction(
+                        contentDescription = "删除",
+                        enabled = true,
+                        onClick = { onDelete(photo) }
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = null,
+                            tint = Color(0xFFFFB4C4),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** 查看器底部半透明圆形操作按钮 */
 @Composable
-private fun ViewerAction(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Box(
-            Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) { icon() }
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = Color.White, fontSize = 12.sp)
-    }
+private fun CircleAction(
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Box(
+        Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.28f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center
+    ) { icon() }
+}
+
+/** 限制放大后的平移范围，避免图片被拖出可视区域 */
+private fun clampOffset(offset: Offset, viewport: IntSize, scale: Float): Offset {
+    if (scale <= 1f || viewport == IntSize.Zero) return Offset.Zero
+    val maxX = viewport.width * (scale - 1f) / 2f
+    val maxY = viewport.height * (scale - 1f) / 2f
+    return Offset(
+        offset.x.coerceIn(-maxX, maxX),
+        offset.y.coerceIn(-maxY, maxY)
+    )
 }
 
 // ---------------- 预览 ----------------

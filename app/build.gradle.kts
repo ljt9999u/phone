@@ -24,7 +24,9 @@ android {
         release {
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                // 只优化 AndroidX：把 kotlin.** / kotlinx.** 纳入 scope 会触发 R8 重打包库类，
+                // 导致 kotlin.sequences 访问性错误（IllegalAccessError），启动即崩溃
+                packageScope = setOf("androidx.**")
             }
         }
     }
